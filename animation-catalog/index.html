@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Animation Catalog</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ============================================================
+    HEADER
+  ============================================================ -->
+  <header class="app-header">
+    <div class="app-title">🎬 Animation Catalog</div>
+
+    <div class="search-wrap">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input type="text" class="search-input" id="searchInput" placeholder="名前・タグで検索...">
+    </div>
+
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="openFormModal()">
+        <span>+</span><span>追加</span>
+      </button>
+      <button class="btn btn-ghost" onclick="openSettingsModal()">
+        <span>⚙️</span><span>設定</span>
+      </button>
+      <button class="btn btn-ghost" onclick="exportData()">
+        <span>⬇</span><span>エクスポート</span>
+      </button>
+      <label class="btn btn-ghost" style="cursor:pointer;">
+        <span>⬆</span><span>インポート</span>
+        <input type="file" accept=".json" style="display:none" onchange="importData(event)">
+      </label>
+    </div>
+  </header>
+
+  <!-- ============================================================
+    FILTER BAR
+  ============================================================ -->
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="setFilter('all', this)">すべて</button>
+    <button class="filter-btn" onclick="setFilter('scroll', this)">📜 Scroll</button>
+    <button class="filter-btn" onclick="setFilter('flip', this)">🃏 Flip</button>
+    <button class="filter-btn" onclick="setFilter('hover', this)">✋ Hover</button>
+    <button class="filter-btn" onclick="setFilter('loading', this)">⏳ Loading</button>
+  </div>
+
+  <div class="count-bar" id="countBar"></div>
+
+  <!-- GRID -->
+  <div class="catalog-grid" id="catalogGrid"></div>
+
+
+  <!-- ============================================================
+    DETAIL MODAL
+  ============================================================ -->
+  <div class="modal-overlay" id="detailOverlay" onclick="handleOverlayClick(event,'detailOverlay')">
+    <div class="modal detail-modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span class="modal-title" id="detailTitle">-</span>
+        <button class="modal-close" onclick="closeModal('detailOverlay')">×</button>
+      </div>
+
+      <div class="detail-body">
+        <!-- 左: デモ -->
+        <div class="demo-panel">
+          <div class="demo-area">
+            <iframe id="demoFrame" src="about:blank" scrolling="no"></iframe>
+          </div>
+          <div class="demo-ctrl">
+            <button class="btn btn-ghost btn-sm" onclick="replayDemo()">▶ 再生</button>
+            <button class="btn btn-ghost btn-sm" id="editFromDetailBtn" onclick="editFromDetail()">✏️ 編集</button>
+          </div>
+        </div>
+
+        <!-- 右: コード -->
+        <div class="code-panel">
+          <div class="code-tabs" id="codeTabs"></div>
+          <div class="code-block-wrap">
+            <pre class="code-block" id="codeBlock"></pre>
+            <button class="copy-btn" id="copyBtn" onclick="copyCode()">📋 コピー</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="detail-meta" id="detailMeta"></div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================
+    FORM MODAL（登録・編集）
+  ============================================================ -->
+  <div class="modal-overlay" id="formOverlay" onclick="handleOverlayClick(event,'formOverlay')">
+    <div class="modal form-modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span class="modal-title" id="formTitle">アニメーション登録</span>
+        <button class="modal-close" onclick="closeModal('formOverlay')">×</button>
+      </div>
+
+      <div class="form-body">
+        <!-- AI生成バー -->
+        <div class="ai-gen-bar">
+          <span class="ai-gen-label">✨ AI生成</span>
+          <label class="btn-attach" title="画像・動画を添付（Gemini 3 Flash で解析）">
+            📎
+            <input type="file" id="aiFileInput" accept="image/*,video/*,.md,text/markdown" style="display:none"
+              onchange="handleAIFile(event)">
+          </label>
+          <div id="aiFilePreview" class="ai-file-preview" style="display:none">
+            <img id="aiFileThumb" src="" alt="" style="display:none">
+            <span id="aiFileName" class="ai-file-name"></span>
+            <button class="btn-file-clear" onclick="clearAIFile()" title="添付を解除">×</button>
+          </div>
+          <input type="text" class="ai-gen-input" id="aiPromptInput"
+            placeholder="例: ページがめくれるアニメーション（画像はCtrl+Vで貼付可）"
+            onkeydown="if(event.key==='Enter') generateWithAI()"
+            onpaste="handleAIPaste(event)">
+          <button class="btn-ai" id="aiGenBtn" onclick="generateWithAI()">生成</button>
+        </div>
+
+        <!-- 基本情報 -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>名前 *</label>
+            <input type="text" id="formName" placeholder="Fade Up">
+          </div>
+          <div class="form-group">
+            <label>カテゴリ *</label>
+            <select id="formCategory">
+              <option value="scroll">📜 Scroll</option>
+              <option value="flip">🃏 Flip / Card</option>
+              <option value="hover">✋ Hover</option>
+              <option value="loading">⏳ Loading</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>タグ（スペース区切り）</label>
+            <input type="text" id="formTags" placeholder="フェード スクロール AOS">
+          </div>
+          <div class="form-group">
+            <label>参照URL</label>
+            <input type="text" id="formRefUrl" placeholder="https://...">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>メモ・説明</label>
+          <input type="text" id="formMemo" placeholder="いつ使うか、特徴など">
+        </div>
+
+        <div class="form-group">
+          <label>プレビューCSS <small style="color:#888;font-weight:normal">（カード一覧用・コピーには含まれません）</small></label>
+          <textarea id="formPreviewCss" rows="4" placeholder="@keyframes xxx { ... }&#10;.preview-el { animation: xxx 2s infinite; }"></textarea>
+        </div>
+
+        <!-- 実装タブ -->
+        <div>
+          <div class="impl-section-label">実装コード</div>
+          <div class="impl-tabs-header">
+            <button class="impl-tab-btn active" id="implTabCss"  onclick="switchImplTab('css',  this)">CSS版</button>
+            <button class="impl-tab-btn"        id="implTabAos"  onclick="switchImplTab('aos',  this)">AOS版</button>
+            <button class="impl-tab-btn"        id="implTabGsap" onclick="switchImplTab('gsap', this)">GSAP版</button>
+          </div>
+        </div>
+
+        <div id="implFields">
+          <div class="form-row">
+            <div class="form-group">
+              <label>HTML</label>
+              <textarea id="formHtml" rows="4" placeholder="<div class=...>"
+                oninput="updateLivePreview()"></textarea>
+            </div>
+            <div class="form-group">
+              <label>CSS</label>
+              <textarea id="formCss" rows="4" placeholder=".box { opacity:0; ... }"
+                oninput="updateLivePreview()"></textarea>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>JavaScript</label>
+            <textarea id="formJs" rows="3" placeholder="// IntersectionObserver..."
+              oninput="updateLivePreview()"></textarea>
+          </div>
+          <div class="form-group" id="formCdnGroup" style="display:none">
+            <label>CDN読み込み（ライブラリのscript/link）</label>
+            <textarea id="formCdn" rows="2"
+              placeholder="<link rel='stylesheet' href='...'>\n<script src='...'></script>"></textarea>
+          </div>
+        </div>
+
+        <!-- ライブプレビュー -->
+        <div class="live-preview-wrap">
+          <div class="live-preview-label">👁 ライブプレビュー</div>
+          <iframe class="live-preview-frame" id="livePreviewFrame"></iframe>
+        </div>
+      </div>
+
+      <div class="form-footer">
+        <button class="btn btn-ghost" onclick="closeModal('formOverlay')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveAnimation()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================
+    SETTINGS MODAL
+  ============================================================ -->
+  <div class="modal-overlay" id="settingsOverlay" onclick="handleOverlayClick(event,'settingsOverlay')">
+    <div class="modal settings-modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span class="modal-title">⚙️ 設定</span>
+        <button class="modal-close" onclick="closeModal('settingsOverlay')">×</button>
+      </div>
+      <div class="settings-body">
+        <div class="form-group">
+          <label>使用AIモデル</label>
+          <select id="settingsModel" onchange="updateApiKeyLabel()">
+            <option value="gemini3">Gemini 2.0 Flash（推奨・テキスト/画像）</option>
+            <option value="gemini25">Gemini 2.5 Flash（安定版）</option>
+            <option value="gemini25pro">Gemini 2.5 Pro（動画解析・高精度）</option>
+            <option value="deepseek">DeepSeek V3（超低コスト）</option>
+          </select>
+          <span class="form-hint">🎬 動画を添付した場合は常に Gemini 2.5 Pro で解析します</span>
+        </div>
+        <div class="form-group">
+          <label id="apiKeyLabel">APIキー（Gemini）</label>
+          <input type="password" id="settingsApiKey" placeholder="AIza...">
+          <span class="form-hint">⚠️ 最初の1回だけ入力してください。保存後はブラウザが記憶します。<br>このPCのブラウザ内にのみ保存されます。外部送信はしません。</span>
+        </div>
+        <div class="settings-note">
+          <strong>Gemini APIキー取得:</strong><br>
+          <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a> → APIキーを作成<br>
+          Gemini 3 Flash: 画像・動画解析対応・無料枠1,000req/日<br><br>
+          <strong>DeepSeek APIキー取得:</strong><br>
+          <a href="https://platform.deepseek.com/api_keys" target="_blank">platform.deepseek.com</a> → API Keys<br>
+          $0.14〜/1Mトークン（超低コスト）
+        </div>
+      </div>
+      <div class="form-footer">
+        <button class="btn btn-ghost" onclick="closeModal('settingsOverlay')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MD 一括インポートモーダル -->
+  <div class="modal-overlay" id="mdImportOverlay" onclick="handleOverlayClick(event,'mdImportOverlay')">
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <span class="modal-title">📄 MDファイルから一括インポート</span>
+        <button class="modal-close" onclick="closeModal('mdImportOverlay')">×</button>
+      </div>
+      <div class="form-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <span id="mdImportCount" style="font-size:13px;color:#64748b"></span>
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 10px" onclick="toggleMdSelectAll()">全選択 / 全解除</button>
+        </div>
+        <div id="mdImportList" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto;padding-right:4px"></div>
+      </div>
+      <div class="form-footer">
+        <button class="btn btn-ghost" onclick="closeModal('mdImportOverlay')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveMdImport()">選択した項目を登録</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <!-- ============================================================
+    SCRIPTS
+  ============================================================ -->
+  <script src="catalog.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

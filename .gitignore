@@ -1,0 +1,25 @@
+# 環境変数（APIキー）
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# VSCode
+.vscode/
+
+# Claude
+.claude/
+
+# 動画ファイル（大きいため除外）
+*.mp4
+*.mov
+*.avi
+*.webm
+
+# OS
+.DS_Store
+Thumbs.db
