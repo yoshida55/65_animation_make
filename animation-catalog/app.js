@@ -335,12 +335,20 @@ setTimeout(function(){
 })();
 <\/script>`;
 
-  // ── hover/scroll/click トリガー系: previewCss を優先使用 ──
-  // :hover または JSトリガー（scroll/click等）かつ previewCss がある場合は専用ループ表示
-  const rawPreviewCss    = (anim.previewCss || '').trim();
+  // ── previewCss が存在すれば常に優先使用 ──
+  // AIが生成したpreviewCssは常にカードプレビューとして使う（条件なし）
+  let rawPreviewCss      = (anim.previewCss || '').trim();
   const hasHoverTrigger  = (impl.css || '').includes(':hover');
-  const hasJsTrigger     = /scroll|\.on\(|\.click|\.toggle|\.hover/.test(impl.js || '');
-  const usePreviewCss    = (hasHoverTrigger || hasJsTrigger) && !!rawPreviewCss;
+  const hasJsTrigger     = /scroll|\.on\(|\.click|\.toggle|\.hover|IntersectionObserver|classList/.test(impl.js || '');
+
+  // previewCssが空かつJSトリガー系 → 自動フォールバック（フェードアップで代替表示）
+  if (!rawPreviewCss && (hasHoverTrigger || hasJsTrigger)) {
+    const kn = `_fb_${anim.id.replace(/[^a-zA-Z0-9]/g,'')}`;
+    rawPreviewCss = `@keyframes ${kn}{0%,100%{opacity:0;transform:translateY(10px)}40%,70%{opacity:1;transform:translateY(0)}}`+
+                   `.preview-el{animation:${kn} 2.5s ease-in-out infinite;}`;
+  }
+
+  const usePreviewCss    = !!rawPreviewCss; // previewCssがあれば必ず使う（トリガー種別問わず）
 
   if (usePreviewCss) {
     // #prev-${id} セレクタをそのまま使えるよう body 内に同 id の div を置く
@@ -597,6 +605,39 @@ function buildDemoSrcdoc(impl) {
     ? `<script>if(typeof AOS!=='undefined')AOS.init({duration:800,offset:0,once:false});<\/script>`
     : '';
 
+  // IO即時発火 + クラスベーストリガー一括適用（ループなし・詳細モーダル用）
+  const demoLoopScript = `<script>
+(function(){
+  var _observed=[];
+  // IntersectionObserver を即時発火モックに置換
+  window.IntersectionObserver=function(cb){
+    return{
+      observe:function(el){
+        _observed.push({cb:cb,el:el});
+        setTimeout(function(){cb([{isIntersecting:true,target:el,intersectionRatio:1}]);},80);
+      },
+      unobserve:function(){},
+      disconnect:function(){}
+    };
+  };
+  // 300ms後: クラスベーストリガーを一括適用（IO未使用アニメーション対応）
+  var TRIGGER=['is-visible','active','animated','show','in-view','visible','animate',
+               'anim-active','wave-animate','curtain-open','revealed','triggered','enter'];
+  setTimeout(function(){
+    var sel='.anim-trigger,.reveal,.fade,.appear,.scroll-anim,.js-anim'+
+            ',[class*="anim"],[class*="scroll-"],[class*="reveal"],[class*="fade-"]';
+    try{
+      document.querySelectorAll(sel).forEach(function(el){
+        TRIGGER.forEach(function(c){el.classList.add(c);});
+      });
+    }catch(e){}
+    _observed.forEach(function(o){
+      o.cb([{isIntersecting:true,target:o.el,intersectionRatio:1}]);
+    });
+  },300);
+})();
+<\/script>`;
+
   return `<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
@@ -606,6 +647,7 @@ function buildDemoSrcdoc(impl) {
   ${aosFixCss}
   ${impl.css || ''}
 </style>
+${demoLoopScript}
 ${cdnSafe}
 </head>
 <body>
@@ -853,13 +895,15 @@ async function generateWithAI() {
   "previewCss": "カードプレビュー用CSS（後述）"
 }
 
-【previewCssの書き方】
+【previewCssの書き方（必須・必ず生成すること）】
 - 幅56px・高さ36pxの <div class="preview-el"> をアニメーションさせるCSSを書く
 - @keyframes で必ず infinite（無限ループ）にすること
 - アニメーションの動きを .preview-el に直接表現すること
   例）フェード: opacity 0→1→0  スライダー: translateX で横スクロール  フリップ: rotateY  スピナー: rotate
+       カーテン: 左右2帯(::before/::afterまたはoverflow:hidden + translateX)で開閉  ワイプ: clip-path inset変化
 - jQueryプラグイン（Slick等）はJSが動かないためpreviewCssが特に重要
   スライダー系の例: 横3色帯を translateX でスライドさせて「スライダー感」を出す
+- previewCssは絶対に空にしないこと（空だと真っ暗になる）
 
 【重要な制約】
 - 外部URL（画像・動画・フォントなど）を一切使用しないこと
@@ -909,6 +953,401 @@ async function generateWithAI() {
 }
 
 // ============================================================
+// 動画プロンプト生成（動画＋テキスト → 説明文を自動生成してinputに反映）
+// ============================================================
+async function generateVideoPrompt() {
+  if (!settings.apiKey) {
+    showToast('⚙️ 設定からAPIキーを入力してください', 'error');
+    openSettingsModal();
+    return;
+  }
+  if (!attachedFileData || !attachedFileData.mimeType.startsWith('video/')) {
+    showToast('⚠️ 動画ファイルを添付してください', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('aiPromptBtn');
+  const userText = document.getElementById('aiPromptInput').value.trim();
+  btn.textContent = '生成中...';
+  btn.disabled = true;
+
+  const promptText = `この動画に映っているUIアニメーションを観察してください。
+${userText ? `ユーザーは「${userText}」と説明しています。` : ''}
+以下の観点を含む、CSSアニメーション実装のための詳細な説明文を日本語で1〜3文で生成してください。
+- 動きの方向・種類（フェード・スライド・回転・スケール・めくり等）
+- タイミング・速さの印象（速い・ゆっくり・バウンスあり等）
+- 使用場面（スクロール時・ホバー時・ページ読み込み時等）
+- 3D感・奥行き感があるかどうか
+
+説明文のみ返してください。JSONや箇条書きは不要です。`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${settings.apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { inlineData: { mimeType: attachedFileData.mimeType, data: attachedFileData.base64 } },
+            { text: promptText }
+          ]
+        }]
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    const generatedPrompt = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!generatedPrompt) throw new Error('プロンプト生成に失敗しました');
+
+    document.getElementById('aiPromptInput').value = generatedPrompt;
+    showToast('✅ プロンプト生成完了！確認・修正後に「生成」を押してください');
+  } catch (e) {
+    console.error(e);
+    showToast('エラー: ' + (e.message || '不明なエラー'), 'error');
+  } finally {
+    btn.textContent = '📝 プロンプト生成';
+    btn.disabled = false;
+  }
+}
+
+// ============================================================
+// 改善プロンプト生成（粗い指示 → 詳細な改善指示に変換してinputに反映）
+// ============================================================
+async function generateRefinePrompt() {
+  if (!settings.apiKey) {
+    showToast('⚙️ 設定からAPIキーを入力してください', 'error');
+    openSettingsModal();
+    return;
+  }
+  saveCurrentImplFields();
+  const cur = formImplData[currentImplTab] || {};
+  if (!cur.html && !cur.css) {
+    showToast('⚠️ 先にコードを生成してください', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('aiRefinePromptBtn');
+  const userIdea = document.getElementById('aiPromptInput').value.trim();
+  btn.textContent = '生成中...';
+  btn.disabled = true;
+
+  const codeSnippet = [
+    cur.html ? `HTML:\n${cur.html.slice(0, 400)}` : '',
+    cur.css  ? `CSS:\n${cur.css.slice(0, 400)}`   : '',
+    cur.js   ? `JS:\n${cur.js.slice(0, 200)}`      : '',
+  ].filter(Boolean).join('\n\n');
+
+  const prompt = `以下のCSSアニメーションコードがあります。
+${userIdea ? `ユーザーの改善アイデア：「${userIdea}」\n` : ''}
+【現在のコード（抜粋）】
+${codeSnippet}
+
+このコードに対する改善指示を、AIが実装しやすい具体的な日本語プロンプトに変換してください。
+- どのプロパティを変更するか（duration・easing・transform等）
+- 具体的な数値や方向の提案
+- 追加すべき視覚効果
+
+改善指示プロンプトのみ返してください（JSONや箇条書き不要・1〜3文）。`;
+
+  try {
+    const modelId = GEMINI_MODEL_IDS[settings.model] || GEMINI_MODEL_IDS.gemini3;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${settings.apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4 }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    const refined = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!refined) throw new Error('改善プロンプト生成に失敗しました');
+    document.getElementById('aiPromptInput').value = refined;
+    showToast('✅ 改善プロンプト生成完了！確認後「🔧 改善」を押してください');
+  } catch (e) {
+    console.error(e);
+    showToast('エラー: ' + (e.message || '不明なエラー'), 'error');
+  } finally {
+    btn.textContent = '📝 改善案生成';
+    btn.disabled = false;
+  }
+}
+
+// ============================================================
+// コード改善（現在のコード + プロンプト → 改善版を生成）
+// ============================================================
+async function refineWithAI() {
+  if (!settings.apiKey) {
+    showToast('⚙️ 設定からAPIキーを入力してください', 'error');
+    openSettingsModal();
+    return;
+  }
+  saveCurrentImplFields();
+  const cur = formImplData[currentImplTab] || {};
+  if (!cur.html && !cur.css) {
+    showToast('⚠️ 先にコードを生成してください', 'error');
+    return;
+  }
+  const refinePrompt = document.getElementById('aiPromptInput').value.trim();
+  if (!refinePrompt) {
+    showToast('⚠️ 改善指示を入力してください', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('aiRefineBtn');
+  btn.textContent = '改善中...';
+  btn.disabled = true;
+
+  const systemPrompt = `あなたはCSSアニメーションの専門家です。
+以下の既存コードを改善指示に従って改善し、必ず以下のJSON形式のみで返答してください（前後の説明文不要）：
+{
+  "html": "改善後のHTML（bodyタグ不要）",
+  "css": "改善後のCSS",
+  "js": "改善後のJS（不要なら空文字）",
+  "previewCss": "カードプレビュー用CSS（幅56px・高さ36pxの .preview-el を @keyframes infinite でアニメーション。必須）"
+}
+
+【現在のコード】
+HTML:
+${cur.html || ''}
+
+CSS:
+${cur.css || ''}
+
+JS:
+${cur.js || ''}
+
+【改善指示】
+${refinePrompt}
+
+【制約】
+- 外部URL（画像・動画）は一切使用しない
+- 改善指示に従いつつ、既存の構造を活かすこと`;
+
+  try {
+    const modelId = GEMINI_MODEL_IDS[settings.model] || GEMINI_MODEL_IDS.gemini3;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${settings.apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+        generationConfig: { temperature: 0.3 }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Gemini APIエラー (${res.status})`);
+    }
+    const apiData = await res.json();
+    const responseText = apiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('JSONを取得できませんでした');
+    const data = JSON.parse(jsonMatch[0]);
+
+    // 現在タブのコードを更新
+    formImplData[currentImplTab] = {
+      html: data.html || cur.html || '',
+      css:  data.css  || cur.css  || '',
+      js:   data.js   !== undefined ? data.js : (cur.js || ''),
+      cdn:  cur.cdn || '',
+    };
+    if (data.previewCss) {
+      _aiPreviewCss = data.previewCss;
+      document.getElementById('formPreviewCss').value = data.previewCss;
+    }
+    loadImplFields(currentImplTab);
+    updateLivePreview();
+    showToast('✅ 改善完了！ライブプレビューを確認してください');
+  } catch (e) {
+    console.error(e);
+    showToast('❌ エラー: ' + (e.message || '不明なエラー'), 'error');
+  } finally {
+    btn.textContent = '🔧 改善';
+    btn.disabled = false;
+  }
+}
+
+// ============================================================
+// 詳細モーダルから改善プロンプト生成
+// ============================================================
+async function generateRefinePromptFromDetail() {
+  if (!currentDetailAnim) return;
+  if (!settings.apiKey) {
+    showToast('⚙️ 設定からAPIキーを入力してください', 'error');
+    openSettingsModal();
+    return;
+  }
+  const impl = (currentDetailAnim.implementations || {})[currentCodeType] || {};
+  const userIdea = document.getElementById('detailRefineInput').value.trim();
+
+  const btn = document.getElementById('detailRefinePromptBtn');
+  btn.textContent = '生成中...';
+  btn.disabled = true;
+
+  const codeSnippet = [
+    impl.html ? `HTML:\n${impl.html.slice(0, 400)}` : '',
+    impl.css  ? `CSS:\n${impl.css.slice(0, 400)}`   : '',
+    impl.js   ? `JS:\n${impl.js.slice(0, 200)}`     : '',
+  ].filter(Boolean).join('\n\n');
+
+  const prompt = `以下のCSSアニメーションコードがあります。
+${userIdea ? `ユーザーの改善アイデア：「${userIdea}」\n` : ''}
+【現在のコード（抜粋）】
+${codeSnippet}
+
+このコードに対する改善指示を、AIが実装しやすい具体的な日本語プロンプトに変換してください。
+- どのプロパティを変更するか（duration・easing・transform等）
+- 具体的な数値や方向の提案
+- 追加すべき視覚効果
+
+改善指示プロンプトのみ返してください（JSONや箇条書き不要・1〜3文）。`;
+
+  try {
+    const modelId = GEMINI_MODEL_IDS[settings.model] || GEMINI_MODEL_IDS.gemini3;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${settings.apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4 }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    }
+    const json = await res.json();
+    const refined = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!refined) throw new Error('改善プロンプト生成に失敗しました');
+    document.getElementById('detailRefineInput').value = refined;
+    showToast('✅ 改善プロンプト生成完了！確認後「🔧 改善」を押してください');
+  } catch (e) {
+    console.error(e);
+    showToast('❌ エラー: ' + (e.message || '不明なエラー'), 'error');
+  } finally {
+    btn.textContent = '📝 改善案生成';
+    btn.disabled = false;
+  }
+}
+
+// ============================================================
+// 詳細モーダルからコード改善 → カタログ上書き保存
+// ============================================================
+async function refineFromDetail() {
+  if (!currentDetailAnim) return;
+  if (!settings.apiKey) {
+    showToast('⚙️ 設定からAPIキーを入力してください', 'error');
+    openSettingsModal();
+    return;
+  }
+  const impl = (currentDetailAnim.implementations || {})[currentCodeType] || {};
+  const refinePrompt = document.getElementById('detailRefineInput').value.trim();
+  if (!refinePrompt) {
+    showToast('⚠️ 改善の指示を入力してください', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('detailRefineBtn');
+  btn.textContent = '改善中...';
+  btn.disabled = true;
+
+  const systemPrompt = `あなたはCSSアニメーションの専門家です。
+以下の既存コードを改善指示に従って改善し、必ず以下のJSON形式のみで返答してください（前後の説明文不要）：
+{
+  "html": "改善後のHTML（bodyタグ不要）",
+  "css": "改善後のCSS",
+  "js": "改善後のJS（不要なら空文字）",
+  "previewCss": "カードプレビュー用CSS（幅56px・高さ36pxの .preview-el を @keyframes infinite でアニメーション。必須）"
+}
+
+【現在のコード】
+HTML:
+${impl.html || ''}
+
+CSS:
+${impl.css || ''}
+
+JS:
+${impl.js || ''}
+
+【改善指示】
+${refinePrompt}
+
+【制約】
+- 外部URL（画像・動画）は一切使用しない
+- 改善指示に従いつつ、既存の構造を活かすこと`;
+
+  try {
+    const modelId = GEMINI_MODEL_IDS[settings.model] || GEMINI_MODEL_IDS.gemini3;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${settings.apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+        generationConfig: { temperature: 0.3 }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Gemini APIエラー (${res.status})`);
+    }
+    const apiData = await res.json();
+    const responseText = apiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('JSONを取得できませんでした');
+    const data = JSON.parse(jsonMatch[0]);
+
+    // currentDetailAnim の実装を更新
+    if (!currentDetailAnim.implementations) currentDetailAnim.implementations = {};
+    currentDetailAnim.implementations[currentCodeType] = {
+      html: data.html || impl.html || '',
+      css:  data.css  || impl.css  || '',
+      js:   data.js   !== undefined ? data.js : (impl.js || ''),
+      cdn:  impl.cdn || '',
+    };
+    if (data.previewCss) {
+      currentDetailAnim.previewCss = data.previewCss;
+    }
+
+    // カスタムアニメーションとして保存（既存なら上書き・プリセットなら追加）
+    const customs = getCustomAnimations();
+    const idx = customs.findIndex(c => c.id === currentDetailAnim.id);
+    if (idx >= 0) {
+      customs[idx] = currentDetailAnim;
+    } else {
+      // プリセットを改善した場合は新規カスタムとして保存
+      currentDetailAnim.id = 'custom_' + Date.now();
+      customs.push(currentDetailAnim);
+    }
+    saveCustomAnimations(customs);
+
+    // 詳細モーダルを更新
+    renderCodeBlock();
+    renderDemoFrame();
+    renderGrid();
+    showToast('✅ 改善完了・保存しました！');
+  } catch (e) {
+    console.error(e);
+    showToast('❌ エラー: ' + (e.message || '不明なエラー'), 'error');
+  } finally {
+    btn.textContent = '🔧 改善';
+    btn.disabled = false;
+  }
+}
+
+// ============================================================
 // 動画アニメーション解析（Video → カタログ登録）
 // ============================================================
 async function generateFromVideo() {
@@ -926,7 +1365,7 @@ async function generateFromVideo() {
   "category": "scroll か flip か hover か loading のいずれか",
   "tags": ["タグ1", "タグ2", "タグ3"],
   "memo": "このアニメーションの特徴・使いどころ（1〜2文）",
-  "previewCss": "カードプレビュー用CSS（幅56px・高さ36pxの .preview-el を @keyframes infinite でアニメーション）",
+  "previewCss": "カードプレビュー用CSS（幅56px・高さ36pxの .preview-el を @keyframes infinite でアニメーション。必須・空にしないこと。例: フェード→opacity 0→1→0, スライド→translateX, カーテン→左右2帯をclip-pathで開閉, フリップ→rotateY）",
   "css": {
     "html": "CSS版のHTML（bodyタグ不要）",
     "css": "CSS版のCSS（@keyframesを含む完全なCSS）",

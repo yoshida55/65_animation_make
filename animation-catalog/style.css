@@ -365,6 +365,26 @@ body {
   gap: 8px;
 }
 
+.detail-refine-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.detail-refine-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+}
+.detail-refine-input:focus { border-color: #6366f1; }
+
 .code-panel { display: flex; flex-direction: column; gap: 10px; }
 
 /* ---------- CODE TABS ---------- */
@@ -515,6 +535,18 @@ body {
 }
 .btn-ai:hover { opacity: 0.9; }
 .btn-ai:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-ai-prompt {
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  font-size: 11px;
+}
+.btn-ai-refine-prompt {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  font-size: 11px;
+}
+.btn-ai-refine {
+  background: linear-gradient(135deg, #10b981, #059669);
+  font-size: 11px;
+}
 
 /* 📎 添付ボタン */
 .btn-attach {

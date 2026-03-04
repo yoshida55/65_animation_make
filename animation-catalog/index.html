@@ -75,6 +75,13 @@
             <button class="btn btn-ghost btn-sm" onclick="replayDemo()">▶ 再生</button>
             <button class="btn btn-ghost btn-sm" id="editFromDetailBtn" onclick="editFromDetail()">✏️ 編集</button>
           </div>
+          <div class="detail-refine-bar">
+            <input type="text" class="detail-refine-input" id="detailRefineInput"
+              placeholder="改善の指示（例: もっとゆっくり、色を青に）"
+              onkeydown="if(event.key==='Enter') refineFromDetail()">
+            <button class="btn-ai btn-ai-refine-prompt" id="detailRefinePromptBtn" onclick="generateRefinePromptFromDetail()">📝 改善案生成</button>
+            <button class="btn-ai btn-ai-refine" id="detailRefineBtn" onclick="refineFromDetail()">🔧 改善</button>
+          </div>
         </div>
 
         <!-- 右: コード -->
@@ -120,6 +127,9 @@
             placeholder="例: ページがめくれるアニメーション（画像はCtrl+Vで貼付可）"
             onkeydown="if(event.key==='Enter') generateWithAI()"
             onpaste="handleAIPaste(event)">
+          <button class="btn-ai btn-ai-prompt" id="aiPromptBtn" onclick="generateVideoPrompt()" title="動画＋テキストからプロンプトを自動生成">📝 プロンプト生成</button>
+          <button class="btn-ai btn-ai-refine-prompt" id="aiRefinePromptBtn" onclick="generateRefinePrompt()" title="現在のコード＋粗い指示 → 詳細な改善プロンプトを生成">📝 改善案生成</button>
+          <button class="btn-ai btn-ai-refine" id="aiRefineBtn" onclick="refineWithAI()" title="現在のコードをプロンプトに従って改善">🔧 改善</button>
           <button class="btn-ai" id="aiGenBtn" onclick="generateWithAI()">生成</button>
         </div>
 
