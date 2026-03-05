@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap">
+<style>
+@keyframes card-appear {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(15px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  display: flex; justify-content: center; align-items: center;
+  min-height: 100vh; background-color: #f0f4f8;
+  font-family: 'Noto Sans JP', sans-serif;
+}
+.card-container {
+  width: 950px; height: 450px;
+  display: flex; position: relative;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.1));
+  border-radius: 10px; overflow: hidden;
+  transition: filter 0.3s ease;
+  animation: card-appear 0.8s cubic-bezier(0.25,0.46,0.45,0.94) forwards;
+}
+.card-container:hover { filter: drop-shadow(0 8px 20px rgba(0,0,0,0.15)); }
+.left-section {
+  flex: 0 0 48%; background-color: white; padding: 0 60px;
+  display: flex; flex-direction: column; justify-content: center; z-index: 1;
+}
+.title, .company-info, .view-more-button, .stats-wrapper, .vertical-label {
+  opacity: 0;
+  animation: fade-in-up 0.6s cubic-bezier(0.25,0.46,0.45,0.94) forwards;
+}
+.title { display: flex; align-items: baseline; color: #0d4a9b; font-weight: 700; animation-delay: 0.3s; }
+.title-number { font-size: 120px; line-height: 1; color: transparent; -webkit-text-stroke: 2px #0d4a9b; margin-right: 5px; }
+.title-text { font-size: 48px; }
+.company-info { margin-top: 20px; color: #0d4a9b; font-weight: 700; font-size: 36px; line-height: 1.6; animation-delay: 0.4s; }
+.highlight { background-color: #e0f2ff; padding: 2px 10px; border-radius: 4px; }
+.view-more-button { display: flex; align-items: center; margin-top: 40px; text-decoration: none; color: #333; font-weight: 700; animation-delay: 0.5s; }
+.arrow-circle {
+  width: 50px; height: 50px; background-color: #1a2333; border-radius: 50%;
+  color: white; display: flex; justify-content: center; align-items: center;
+  font-size: 24px; margin-left: 15px; transition: transform 0.3s ease;
+}
+.view-more-button:hover .arrow-circle { transform: translateX(5px); }
+.right-section {
+  flex: 1; background: linear-gradient(160deg, #00bfff, #0033a0);
+  position: relative; margin-left: -60px;
+  border-radius: 0 10px 10px 0;
+  border-top-left-radius: 250px; border-bottom-left-radius: 250px;
+  padding: 40px 40px 40px 120px;
+  display: flex; align-items: center; color: white; z-index: 2;
+  transition: transform 0.4s cubic-bezier(0.25,0.46,0.45,0.94);
+}
+.card-container:hover .right-section { transform: translateX(10px); }
+.stats-wrapper { display: flex; flex-direction: column; gap: 25px; width: 100%; animation-delay: 0.6s; }
+.stat-row { display: flex; justify-content: space-between; align-items: baseline; }
+.top-row { align-items: flex-end; }
+.stat-item { display: flex; flex-direction: column; }
+.stat-label { font-size: 16px; color: #aaddff; margin-bottom: 5px; }
+.stat-value-group { display: flex; align-items: baseline; font-weight: 700; color: #ffffff; }
+.sub-label { font-size: 16px; margin-right: 5px; color: #aaddff; }
+.stat-value { line-height: 1; }
+.stat-unit { margin-left: 5px; }
+.stat-value.large { font-size: 80px; }
+.stat-unit.large { font-size: 28px; }
+.stat-value.medium { font-size: 48px; }
+.stat-unit.medium { font-size: 20px; }
+.vertical-label {
+  writing-mode: vertical-rl; text-orientation: upright;
+  font-size: 18px; color: #aaddff; letter-spacing: 4px;
+  position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+  animation-delay: 0.7s;
+}
+</style>
+</head>
+<body>
+<div class='card-container'>
+  <div class='left-section'>
+    <div class='title'>
+      <span class='title-number'>3</span><span class='title-text'>分でわかる</span>
+    </div>
+    <div class='company-info'>
+      <p class='company-name'><span class='highlight'>アストモスグループ</span></p>
+      <p class='company-type'><span class='highlight'>物流会社</span></p>
+    </div>
+    <a href='#' class='view-more-button'>
+      <span>VIEW MORE</span>
+      <div class='arrow-circle'>→</div>
+    </a>
+  </div>
+  <div class='right-section'>
+    <div class='stats-wrapper'>
+      <div class='stat-row top-row'>
+        <div class='stat-item'>
+          <div class='stat-label'>年間合計走行距離</div>
+          <div class='stat-value-group'>
+            <span class='sub-label'>地球</span><span class='stat-value large'>211</span><span class='stat-unit large'>周分</span>
+          </div>
+        </div>
+        <div class='stat-item'>
+          <div class='stat-value-group'>
+            <span class='stat-value large'>598</span><span class='stat-unit large'>輛</span>
+          </div>
+        </div>
+      </div>
+      <div class='stat-row'>
+        <div class='stat-item'>
+          <div class='stat-value-group'>
+            <span class='stat-value medium'>102</span><span class='stat-unit medium'>万件</span>
+          </div>
+        </div>
+        <div class='stat-item'>
+          <div class='stat-value-group'>
+            <span class='sub-label'>約</span><span class='stat-value medium'>6,215</span><span class='stat-unit medium'>億円</span>
+          </div>
+        </div>
+      </div>
+      <div class='stat-row'>
+        <div class='stat-item'>
+          <div class='stat-value-group'>
+            <span class='sub-label'>約</span><span class='stat-value medium'>31</span><span class='stat-unit medium'>万t</span>
+          </div>
+        </div>
+        <div class='stat-item'>
+          <div class='stat-value-group'>
+            <span class='stat-value medium'>57</span><span class='stat-unit medium'>カ所</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class='vertical-label'>配送拠点数</div>
+  </div>
+</div>
+</body>
+</html>

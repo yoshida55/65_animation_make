@@ -31,6 +31,18 @@ function init() {
     state.search = e.target.value.toLowerCase().trim();
     renderGrid();
   });
+  // iframe 高さ自動リサイズ
+  window.addEventListener('message', e => {
+    if (!e.data) return;
+    if (e.data.type === 'iframeResize') {
+      const f = document.getElementById('demoFrame');
+      if (f) f.style.height = Math.max(e.data.height, 200) + 'px';
+    }
+    if (e.data.type === 'liveResize') {
+      const f = document.getElementById('livePreviewFrame');
+      if (f) f.style.height = Math.max(e.data.height, 160) + 'px';
+    }
+  });
 }
 
 // ============================================================
@@ -173,6 +185,27 @@ function detectCdn(html, js) {
 }
 
 const _PLACEHOLDER_COLORS = ['#6366f1','#8b5cf6','#ec4899','#14b8a6','#f59e0b','#ef4444','#3b82f6','#10b981'];
+// ベアURL（タグなし）を適切な link/script タグに変換
+function normalizeCdn(cdn) {
+  if (!cdn) return '';
+  return cdn
+    .replace(/\/>/g, '>')
+    .replace(/<\\\/script>/gi, '</script>')
+    .split('\n')
+    .map(line => {
+      const url = line.trim();
+      if (!url || url.startsWith('<') || url.startsWith('<!--')) return line;
+      if (/\.(css)(\?|$)/i.test(url) || url.includes('fonts.googleapis')) {
+        return `<link rel="stylesheet" href="${url}">`;
+      }
+      if (/\.(js)(\?|$)/i.test(url)) {
+        return `<script src="${url}"><\/script>`;
+      }
+      return line;
+    })
+    .join('\n');
+}
+
 function buildSafeHtml(html) {
   if (!html) return '';
   let idx = 0;
@@ -255,9 +288,7 @@ function buildCardPreviewSrcdoc(anim) {
   if (!impl) return '';
 
   const isAos  = (impl.cdn || '').includes('aos') || (impl.html || '').includes('data-aos');
-  const cdnSafe = (impl.cdn || '')
-    .replace(/\/>/g, '>')
-    .replace(/<\\\/script>/gi, '</script>');
+  const cdnSafe = normalizeCdn(impl.cdn || '');
 
   const aosFixJs = isAos
     ? `<script>
@@ -521,6 +552,63 @@ function renderGrid() {
   setupCardIframeObserver();
 }
 
+// AI返答のJSON文字列を堅牢にパース
+function parseAiJson(raw) {
+  // バッククォート・マークダウンブロック除去
+  raw = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').replace(/`/g, '"');
+
+  // 1回目: そのままパース
+  try { return JSON.parse(raw); } catch (_) {}
+
+  // 2回目: HTML属性のダブルクォートをシングルに変換 + 文字単位で改行エスケープ
+  let out = '', inStr = false, esc = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (esc) { out += c; esc = false; continue; }
+    if (c === '\\' && inStr) { esc = true; out += c; continue; }
+    if (c === '"') {
+      // 文字列内で =" や (" や ,' のパターン → HTML属性の " → ' に変換
+      if (inStr) {
+        const prev2 = out.slice(-2);
+        if (/[=(\s,]$/.test(prev2) || /^[=(\s,]/.test(prev2)) {
+          out += "'"; continue;  // 属性値開始の " → '
+        }
+        // 次が英数字・スペース・記号なら属性値終端の " → '
+        const next = raw[i + 1] || '';
+        if (/^[\w\s\-_#.:/]/.test(next) === false && next !== '"' && next !== '\\') {
+          // 閉じクォートの可能性が高い → そのまま文字列終了
+        } else {
+          out += "'"; continue;
+        }
+      }
+      inStr = !inStr; out += c; continue;
+    }
+    if (inStr) {
+      if      (c === '\n') { out += '\\n'; continue; }
+      else if (c === '\r') { out += '\\r'; continue; }
+      else if (c === '\t') { out += '\\t'; continue; }
+    }
+    out += c;
+  }
+  try { return JSON.parse(out); } catch (_) {}
+
+  // 3回目: フィールドを個別に正規表現で抽出（最終手段）
+  const get = (key) => {
+    const m = raw.match(new RegExp(`"${key}"\\s*:\\s*"([\\s\\S]*?)"\\s*(?:,\\s*"|\\})`));
+    return m ? m[1].replace(/\\n/g, '\n') : '';
+  };
+  const getArr = (key) => {
+    const m = raw.match(new RegExp(`"${key}"\\s*:\\s*\\[([^\\]]*?)\\]`));
+    if (!m) return [];
+    return m[1].match(/"([^"]+)"/g)?.map(s => s.slice(1, -1)) || [];
+  };
+  return {
+    html: get('html'), css: get('css'), js: get('js'), cdn: get('cdn'),
+    name: get('name'), category: get('category'), tags: getArr('tags'),
+    previewCss: get('previewCss'),
+  };
+}
+
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -594,10 +682,7 @@ function renderDemoFrame() {
 }
 
 function buildDemoSrcdoc(impl) {
-  // 自己終了タグを修正 ＋ 誤って保存された <\/script>（バックスラッシュ付き）を正規化
-  const cdnSafe = (impl.cdn || '')
-    .replace(/\/>/g, '>')
-    .replace(/<\\\/script>/gi, '</script>');
+  const cdnSafe = normalizeCdn(impl.cdn || '');
 
   const isAos = (impl.cdn || '').includes('aos') || (impl.html || '').includes('data-aos');
 
@@ -645,6 +730,27 @@ function buildDemoSrcdoc(impl) {
 })();
 <\/script>`;
 
+  const autoResizeScript = `<script>
+(function(){
+  function scaleAndNotify(){
+    // コンテンツ幅がiframe幅より広い場合は縮小表示
+    var cw=document.documentElement.scrollWidth;
+    var iw=window.innerWidth;
+    if(cw>iw+10){
+      var scale=iw/cw;
+      document.body.style.transformOrigin='top left';
+      document.body.style.transform='scale('+scale+')';
+      document.body.style.width=(100/scale)+'%';
+    }
+    var h=Math.max(document.body.getBoundingClientRect().height,200);
+    parent.postMessage({type:'iframeResize',height:Math.ceil(h)},'*');
+  }
+  window.addEventListener('load',scaleAndNotify);
+  setTimeout(scaleAndNotify,400);
+  setTimeout(scaleAndNotify,1000);
+})();
+<\/script>`;
+
   return `<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
@@ -661,6 +767,7 @@ ${cdnSafe}
   ${impl.html || '<div style="width:80px;height:50px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;"></div>'}
   ${impl.js ? `<script>${impl.js}<\/script>` : ''}
   ${aosFixJs}
+  ${autoResizeScript}
 </body></html>`;
 }
 
@@ -802,6 +909,7 @@ function updateLivePreview() {
 </head><body>
   ${html || '<p style="color:#94a3b8;font-size:12px;">HTMLを入力するとここにプレビューが表示されます</p>'}
   ${js ? `<script>${js}<\/script>` : ''}
+  <script>(function(){function n(){var h=Math.max(document.body.scrollHeight,200);parent.postMessage({type:'liveResize',height:h},'*');}window.addEventListener('load',n);setTimeout(n,400);setTimeout(n,1000);})();<\/script>
 </body></html>`;
 
   document.getElementById('livePreviewFrame').srcdoc = doc;
@@ -889,7 +997,44 @@ async function generateWithAI() {
   btn.textContent = '生成中...';
   btn.disabled = true;
 
-  const systemPrompt = `あなたはCSS/JavaScriptアニメーションの専門家です。ユーザーの要望に合ったアニメーションのコードを生成してください。
+  const isImageMode = attachedFileData && attachedFileData.mimeType.startsWith('image/');
+
+  const systemPrompt = isImageMode
+    ? `あなたはHTML/CSSのフロントエンド専門家です。添付された画像のUIデザインを忠実に再現するコードを生成してください。
+必ず以下のJSON形式のみで返答してください（前後の説明文は不要）：
+{
+  "html": "HTMLコード（bodyタグは不要）",
+  "css": "CSSコード",
+  "js": "JavaScriptコード（ホバー等JSが不要なら空文字）",
+  "cdn": "外部CDNのlink/scriptタグ（不要なら空文字）",
+  "name": "デザイン名（日本語OK）",
+  "category": "hover か layout",
+  "tags": ["タグ1", "タグ2", "タグ3"],
+  "previewCss": "カードプレビュー用CSS（後述）"
+}
+
+【デザイン再現のルール】
+- 画像に表示されているレイアウト・色・形状を忠実に再現すること
+- グラデーション・clip-path・border-radius・楕円・疑似要素等をフル活用すること
+- 2カラムレイアウトは display:flex で実装すること
+- 画像にホバー効果がある場合はCSSのみ（:hover）で実装すること
+- アニメーションがない静的デザインはjsを空文字にすること
+- フォント・動画等の外部URLは使用しないこと
+- 画像が必要な場合は https://picsum.photos/幅/高さ（例: https://picsum.photos/400/300）を使用すること
+- 日本語フォントが必要な場合は https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap を CDN に含めること
+- コードはブラウザで直接動作する完全なものにしてください
+
+【JSON出力ルール（必須）】
+- HTML属性のクォートは必ずシングルクォートにすること（例: class='foo' ）
+- JSON文字列値内の改行は \\n と記述すること（実際の改行禁止）
+- ダブルクォートを文字列値の中に含めないこと
+
+【previewCssの書き方（必須）】
+- 幅56px・高さ36pxの <div class="preview-el"> でデザインの色味・形状を表現するCSSを書く
+- ホバーが主体の場合: .preview-el を元の状態にして .preview-el.force-hover にホバー後の見た目を書く
+- 静的デザインの場合: デザインの主な色・グラデーション・形状を .preview-el に反映するだけでOK
+- previewCssは絶対に空にしないこと`
+    : `あなたはCSS/JavaScriptアニメーションの専門家です。ユーザーの要望に合ったアニメーションのコードを生成してください。
 必ず以下のJSON形式のみで返答してください（前後の説明文は不要）：
 {
   "html": "HTMLコード（bodyタグは不要）",
@@ -913,22 +1058,28 @@ async function generateWithAI() {
 - previewCssは絶対に空にしないこと（空だと真っ暗になる）
 
 【重要な制約】
-- 外部URL（画像・動画・フォントなど）を一切使用しないこと
-- 画像が必要な場合はCSSの background: linear-gradient() や background-color で代用すること
-- コードはブラウザで直接動作する完全なものにしてください`;
+- 動画・フォント等の外部URLは使用しないこと
+- 画像が必要な場合は https://picsum.photos/幅/高さ を使用すること（CSSグラデーションでも可）
+- 日本語フォントが必要な場合は https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap を CDN に含めること
+- コードはブラウザで直接動作する完全なものにしてください
+
+【JSON出力ルール（必須）】
+- HTML属性のクォートは必ずシングルクォートにすること（例: class='foo' ）
+- JSON文字列値内の改行は \\n と記述すること（実際の改行禁止）
+- ダブルクォートを文字列値の中に含めないこと`;
 
   try {
     let responseText;
-    if (settings.model === 'gemini3' || settings.model === 'gemini25' || settings.model === 'gemini') {
+    if (settings.model === 'gemini3' || settings.model === 'gemini25' || settings.model === 'gemini' || settings.model === 'gemini25pro') {
       responseText = await callGeminiAPI(systemPrompt, prompt || '添付ファイルのアニメーションを再現してください');
     } else {
       responseText = await callDeepSeekAPI(systemPrompt, prompt);
     }
 
-    // JSON抽出
+    // JSON抽出（AI誤出力に対して堅牢なパース）
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('JSONを取得できませんでした');
-    const data = JSON.parse(jsonMatch[0]);
+    const data = parseAiJson(jsonMatch[0]);
 
     // フォームに反映
     if (data.name)     document.getElementById('formName').value     = data.name;
@@ -968,8 +1119,8 @@ async function generateVideoPrompt() {
     openSettingsModal();
     return;
   }
-  if (!attachedFileData || !attachedFileData.mimeType.startsWith('video/')) {
-    showToast('⚠️ 動画ファイルを添付してください', 'error');
+  if (!attachedFileData) {
+    showToast('⚠️ 画像または動画を添付してください', 'error');
     return;
   }
 
@@ -978,7 +1129,17 @@ async function generateVideoPrompt() {
   btn.textContent = '生成中...';
   btn.disabled = true;
 
-  const promptText = `この動画に映っているUIアニメーションを観察してください。
+  const isImage = attachedFileData.mimeType.startsWith('image/');
+  const promptText = isImage
+    ? `この画像のUIデザインを観察してください。
+${userText ? `ユーザーは「${userText}」と説明しています。` : ''}
+以下の観点を含む、HTML/CSS実装のための詳細な説明文を日本語で2〜4文で生成してください。
+- 全体のレイアウト構造（flex・grid・absolute等）
+- 色・グラデーション・背景の特徴
+- 形状・角丸・影・装飾要素（楕円・円・clip-path等）
+
+説明文のみ返してください。JSONや箇条書きは不要です。`
+    : `この動画に映っているUIアニメーションを観察してください。
 ${userText ? `ユーザーは「${userText}」と説明しています。` : ''}
 以下の観点を含む、CSSアニメーション実装のための詳細な説明文を日本語で1〜3文で生成してください。
 - 動きの方向・種類（フェード・スライド・回転・スケール・めくり等）

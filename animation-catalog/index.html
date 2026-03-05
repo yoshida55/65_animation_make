@@ -47,6 +47,7 @@
     <button class="filter-btn" onclick="setFilter('flip', this)">🃏 Flip</button>
     <button class="filter-btn" onclick="setFilter('hover', this)">✋ Hover</button>
     <button class="filter-btn" onclick="setFilter('loading', this)">⏳ Loading</button>
+    <button class="filter-btn" onclick="setFilter('layout', this)">🖼 Layout</button>
   </div>
 
   <div class="count-bar" id="countBar"></div>
@@ -127,7 +128,7 @@
             placeholder="例: ページがめくれるアニメーション（画像はCtrl+Vで貼付可）"
             onkeydown="if(event.key==='Enter') generateWithAI()"
             onpaste="handleAIPaste(event)">
-          <button class="btn-ai btn-ai-prompt" id="aiPromptBtn" onclick="generateVideoPrompt()" title="動画＋テキストからプロンプトを自動生成">📝 プロンプト生成</button>
+          <button class="btn-ai btn-ai-prompt" id="aiPromptBtn" onclick="generateVideoPrompt()" title="画像・動画＋テキストからプロンプトを自動生成">📝 プロンプト生成</button>
           <button class="btn-ai btn-ai-refine-prompt" id="aiRefinePromptBtn" onclick="generateRefinePrompt()" title="現在のコード＋粗い指示 → 詳細な改善プロンプトを生成">📝 改善案生成</button>
           <button class="btn-ai btn-ai-refine" id="aiRefineBtn" onclick="refineWithAI()" title="現在のコードをプロンプトに従って改善">🔧 改善</button>
           <button class="btn-ai" id="aiGenBtn" onclick="generateWithAI()">生成</button>
@@ -146,6 +147,7 @@
               <option value="flip">🃏 Flip / Card</option>
               <option value="hover">✋ Hover</option>
               <option value="loading">⏳ Loading</option>
+              <option value="layout">🖼 Layout / Design</option>
             </select>
           </div>
         </div>
