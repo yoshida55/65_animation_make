@@ -341,8 +341,9 @@ setTimeout(function(){
   const hasHoverTrigger  = (impl.css || '').includes(':hover');
   const hasJsTrigger     = /scroll|\.on\(|\.click|\.toggle|\.hover|IntersectionObserver|classList/.test(impl.js || '');
 
-  // previewCssが空かつJSトリガー系 → 自動フォールバック（フェードアップで代替表示）
-  if (!rawPreviewCss && (hasHoverTrigger || hasJsTrigger)) {
+  // previewCssが空かつJSトリガー系のみ → 自動フォールバック（フェードアップで代替表示）
+  // CSSホバー系は実HTMLをスケール表示するので除外
+  if (!rawPreviewCss && hasJsTrigger && !hasHoverTrigger) {
     const kn = `_fb_${anim.id.replace(/[^a-zA-Z0-9]/g,'')}`;
     rawPreviewCss = `@keyframes ${kn}{0%,100%{opacity:0;transform:translateY(10px)}40%,70%{opacity:1;transform:translateY(0)}}`+
                    `.preview-el{animation:${kn} 2.5s ease-in-out infinite;}`;
@@ -408,6 +409,11 @@ setTimeout(function(){
        body>*{zoom:0.28;width:357%;max-width:357%}`
     : '';
 
+  // CSSホバー系: 実HTMLをカードサイズに縮小表示（潰れ防止）
+  const hoverCardCss = (!isAos && hasHoverTrigger)
+    ? `body>*{zoom:0.42;width:238%;max-width:238%}`
+    : '';
+
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -422,6 +428,7 @@ setTimeout(function(){
   ${loopCss}
   ${aosLoopCss}
   ${aosCardCss}
+  ${hoverCardCss}
 </style>${loopScript}${cdnSafe}</head><body>
   ${buildSafeHtml(impl.html || '')}
   ${impl.js ? `<script>${sanitizeJs(impl.js)}<\/script>` : ''}
